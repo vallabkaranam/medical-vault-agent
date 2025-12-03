@@ -3,6 +3,11 @@
 <div align="center">
   <h3>One Brain, Two Voices.</h3>
   <p>A hybrid microservice architecture bridging the gap between human interfaces and AI agents.</p>
+  <p>
+    <a href="https://medical-vault-agent.vercel.app"><strong>🚀 Live Demo</strong></a> · 
+    <a href="https://github.com/vallabkaranam/medical-vault-agent/issues">Report Bug</a> · 
+    <a href="https://github.com/vallabkaranam/medical-vault-agent/pulls">Request Feature</a>
+  </p>
 </div>
 
 ---
