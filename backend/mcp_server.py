@@ -27,25 +27,28 @@ async def verify_vaccine_record(image_url: str, standard: str = "us_cdc") -> str
     """
     Verify a vaccination record from an image URL against a compliance standard.
     
-    This tool performs a 3-stage analysis:
-    1. Transcription (OCR)
-    2. Translation (if needed)
-    3. Standardization (checking against requirements)
+    Use this tool when you need to check if a medical document meets specific health requirements.
+    It performs OCR, translation, and standardization in one step.
     
     Args:
-        image_url: Public URL of the image to analyze (must be accessible)
-        standard: Compliance standard to check against. Options: "us_cdc", "cornell_tech", "uk_nhs", "canada_health". Default: "us_cdc".
+        image_url: The public, accessible URL of the image file (JPG/PNG/PDF).
+        standard: The compliance standard to validate against. 
+                  Supported values: "us_cdc", "cornell_tech", "uk_nhs", "canada_health".
+                  Default: "us_cdc".
         
     Returns:
-        A JSON string containing the full compliance result, including extracted vaccines and missing requirements.
+        A JSON string containing the structured compliance result.
+        On error, returns a JSON object with an "error" key and "code".
     """
     if not OPENAI_API_KEY:
-        return "Error: OPENAI_API_KEY not set in environment."
+        return '{"error": {"code": "CONFIG_ERROR", "message": "OPENAI_API_KEY not set"}}'
 
     try:
         # 1. Download image
         async with httpx.AsyncClient() as client:
             response = await client.get(image_url)
+            if response.status_code == 404:
+                return '{"error": {"code": "IMAGE_NOT_FOUND", "message": "The image URL could not be reached."}}'
             response.raise_for_status()
             file_bytes = response.content
             
@@ -69,13 +72,14 @@ async def verify_vaccine_record(image_url: str, standard: str = "us_cdc") -> str
             processed_at=transcription.structured_data.get("processed_at", "") # Fallback or new date
         )
         
-        # Return as JSON string for the agent to parse
-        return result.model_dump_json(indent=2)
+        # Return as JSON string for the agent to parse (Token-Efficient)
+        # We use exclude_none=True to keep the payload smaller
+        return result.model_dump_json(indent=2, exclude_none=True)
         
     except httpx.HTTPStatusError as e:
-        return f"Error downloading image: {e}"
+        return f'{{"error": {{"code": "DOWNLOAD_ERROR", "message": "{str(e)}"}} }}'
     except Exception as e:
-        return f"Error processing record: {str(e)}"
+        return f'{{"error": {{"code": "PROCESSING_ERROR", "message": "{str(e)}"}} }}'
 
 if __name__ == "__main__":
     # Run the MCP server
