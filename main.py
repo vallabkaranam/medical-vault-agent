@@ -16,7 +16,7 @@ from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi_mcp import FastApiMCP
+# from fastapi_mcp import FastApiMCP
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -65,7 +65,7 @@ app.add_middleware(
 
 # Initialize MCP Server (Voice 2)
 # FastApiMCP requires the FastAPI app instance as the first parameter
-mcp = FastApiMCP(app)
+# mcp = FastApiMCP(app)
 
 # In-memory cache for uploaded records
 # TODO: Replace with Redis or database in production
@@ -437,9 +437,34 @@ async def upload_vaccine_record(
         # Extracted Vaccines
         extracted_vaccines = data.get("extracted_vaccines", [])
         
-        # TODO: Upload to Supabase Storage (Mocked for now)
-        image_url = f"https://supabase.example.com/storage/{record_id}.jpg"
-        
+        # Upload to Supabase Storage
+        # We use the 'vaccine-records' bucket
+        try:
+            from supabase import create_client, Client
+            
+            # Initialize Supabase client
+            supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            
+            # Create filename
+            filename = f"{record_id}.jpg"
+            
+            # Upload
+            bucket_name = "vaccine-records"
+            supabase.storage.from_(bucket_name).upload(
+                path=filename,
+                file=file_bytes,
+                file_options={"content-type": "image/jpeg"}
+            )
+            
+            # Get Public URL
+            image_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+            
+        except Exception as e:
+            print(f"Supabase Upload Failed: {e}")
+            # Fallback to a placeholder if upload fails (e.g. invalid keys)
+            # This ensures the API doesn't crash completely if Supabase isn't configured
+            image_url = f"https://placeholder.com/failed-upload/{record_id}.jpg"
+
         # Create result
         result = UploadResult(
             record_id=record_id,
@@ -584,6 +609,33 @@ async def standardize_record(
         compliance_notes=f"Validated against {standard.upper()} requirements. " +
                         (f"Missing: {', '.join([v.value for v in missing_vaccines])}" if missing_vaccines else "All required vaccines present.")
     )
+    
+    # ====================================================================
+    # SAVE TO DATABASE
+    # ====================================================================
+    try:
+        from supabase import create_client, Client
+        
+        # Initialize Supabase client
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        db_record = {
+            "record_id": request.record_id,
+            "session_id": uploaded_record.session_id,
+            "standard": standard,
+            "transcription": uploaded_record.transcription.model_dump(mode='json'),
+            "translation": uploaded_record.translation.model_dump(mode='json'),
+            "standardization": result.model_dump(mode='json'),
+            "image_url": uploaded_record.image_url,
+            "processed_at": datetime.utcnow().isoformat()
+        }
+        
+        # Insert into DB
+        supabase.table("compliance_results").insert(db_record).execute()
+        
+    except Exception as e:
+        print(f"Warning: Failed to save to database: {e}")
+        # We don't raise an error here to ensure the API still returns the result
     
     return result
 
@@ -817,7 +869,7 @@ async def verify_vaccine_record(
 
 # Mount MCP server to FastAPI app
 # This allows AI agents to discover and use our tools via the MCP protocol
-mcp.mount()
+# mcp.mount()
 
 
 # ============================================================================
