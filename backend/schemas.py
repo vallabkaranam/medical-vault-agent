@@ -37,7 +37,8 @@ class ComplianceStandard(str, Enum):
     """
     US_CDC = "us_cdc"  # General US CDC guidelines
     CORNELL_TECH = "cornell_tech"  # Cornell Tech specific requirements (POC)
-    # Future: Add more institutions as needed
+    UK_NHS = "uk_nhs"  # UK NHS requirements
+    CANADA_HEALTH = "canada_health"  # Canada Health requirements
 
 
 class VaccineName(str, Enum):

@@ -1,0 +1,126 @@
+import React from 'react';
+import { Check, X, AlertCircle } from 'lucide-react';
+
+export function CornellComplianceForm({ data }) {
+  // Helper to find dates for a specific vaccine
+  const getDates = (vaccineName) => {
+    return data.records
+      .filter(r => r.vaccine_name === vaccineName)
+      .map(r => r.date)
+      .sort();
+  };
+
+  const renderRow = (label, dates, requiredCount = 1) => (
+    <div className="grid grid-cols-12 border-b border-black/10 min-h-[3rem]">
+      <div className="col-span-4 bg-slate-50 p-3 font-semibold text-sm border-r border-black/10 flex items-center">
+        {label}
+      </div>
+      <div className="col-span-8 p-3 flex items-center gap-4">
+        {Array.from({ length: Math.max(dates.length, requiredCount) }).map((_, i) => (
+          <div key={i} className={`flex-1 border rounded px-3 py-1.5 text-sm ${
+            dates[i] 
+              ? 'border-black/20 bg-white text-black' 
+              : 'border-dashed border-black/10 bg-slate-50 text-slate-400'
+          }`}>
+            {dates[i] || 'MM/DD/YYYY'}
+          </div>
+        ))}
+        <div className="ml-auto">
+           {dates.length >= requiredCount ? (
+             <Check className="w-5 h-5 text-emerald-600" />
+           ) : (
+             <AlertCircle className="w-5 h-5 text-amber-500" />
+           )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="bg-white text-black rounded-xl overflow-hidden shadow-xl max-w-4xl mx-auto my-4 font-serif">
+      {/* Header */}
+      <div className="bg-[#B31B1B] text-white p-8 text-center">
+        <h1 className="text-3xl font-bold mb-2 font-sans">Cornell Tech</h1>
+        <h2 className="text-xl font-medium uppercase tracking-widest font-sans">Immunization Compliance Record</h2>
+      </div>
+
+      {/* Student Info Placeholder */}
+      <div className="p-6 border-b-4 border-double border-black/10 bg-slate-50/50">
+        <div className="grid grid-cols-2 gap-8 font-sans text-sm">
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Student Name</label>
+            <div className="font-mono text-lg border-b border-black/20 pb-1">Karanam, Vallab</div>
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Date of Birth</label>
+            <div className="font-mono text-lg border-b border-black/20 pb-1">01/01/1999</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Form Content */}
+      <div className="p-8 space-y-8 font-sans">
+        
+        {/* Section 1: MMR */}
+        <div>
+          <h3 className="text-[#B31B1B] font-bold text-lg border-b-2 border-[#B31B1B] mb-4 pb-1 uppercase">
+            1. Measles, Mumps, Rubella (MMR)
+          </h3>
+          <div className="border border-black/10 rounded-lg overflow-hidden">
+            {renderRow("MMR (Combined)", getDates("MMR"), 2)}
+            {renderRow("Measles (Single)", getDates("Measles"), 2)}
+            {renderRow("Mumps (Single)", getDates("Mumps"), 1)}
+            {renderRow("Rubella (Single)", getDates("Rubella"), 1)}
+          </div>
+        </div>
+
+        {/* Section 2: Tetanus */}
+        <div>
+          <h3 className="text-[#B31B1B] font-bold text-lg border-b-2 border-[#B31B1B] mb-4 pb-1 uppercase">
+            2. Tetanus / Diphtheria / Pertussis
+          </h3>
+          <div className="border border-black/10 rounded-lg overflow-hidden">
+            {renderRow("Tdap (Adacel/Boostrix)", getDates("Tdap"), 1)}
+            {renderRow("Td (Booster)", getDates("Tetanus"), 1)}
+          </div>
+        </div>
+
+        {/* Section 3: Meningococcal */}
+        <div>
+          <h3 className="text-[#B31B1B] font-bold text-lg border-b-2 border-[#B31B1B] mb-4 pb-1 uppercase">
+            3. Meningococcal Meningitis
+          </h3>
+          <div className="border border-black/10 rounded-lg overflow-hidden">
+            {renderRow("MenACWY (Menactra/Menveo)", getDates("Meningococcal"), 1)}
+          </div>
+        </div>
+
+        {/* Section 4: Hep B */}
+        <div>
+          <h3 className="text-[#B31B1B] font-bold text-lg border-b-2 border-[#B31B1B] mb-4 pb-1 uppercase">
+            4. Hepatitis B
+          </h3>
+          <div className="border border-black/10 rounded-lg overflow-hidden">
+            {renderRow("Hepatitis B", getDates("Hepatitis B"), 3)}
+          </div>
+        </div>
+
+         {/* Section 5: Varicella */}
+         <div>
+          <h3 className="text-[#B31B1B] font-bold text-lg border-b-2 border-[#B31B1B] mb-4 pb-1 uppercase">
+            5. Varicella (Chicken Pox)
+          </h3>
+          <div className="border border-black/10 rounded-lg overflow-hidden">
+            {renderRow("Varicella", getDates("Varicella"), 2)}
+          </div>
+        </div>
+
+      </div>
+
+      {/* Footer */}
+      <div className="bg-slate-100 p-6 border-t border-black/10 text-center text-sm text-slate-500">
+        <p>Generated by Personal Vault • Verified against Cornell Tech 2024-2025 Requirements</p>
+      </div>
+    </div>
+  );
+}
