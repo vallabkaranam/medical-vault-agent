@@ -382,6 +382,11 @@ async def upload_vaccine_record(
     """
     from schemas import UploadResult, TranscriptionResult, TranslationResult, LanguageCode
     import uuid
+    import json
+    from openai import OpenAI
+    
+    # Initialize OpenAI client
+    client = OpenAI(api_key=OPENAI_API_KEY)
     
     # Validate file type
     allowed_types = ["image/jpeg", "image/png", "image/jpg", "application/pdf"]
@@ -406,46 +411,33 @@ async def upload_vaccine_record(
         # Generate unique record ID
         record_id = str(uuid.uuid4())
         
-        # STAGE 1: Transcription (MOCK)
+        # Process with AI
+        data = await _analyze_image_with_ai(file_bytes)
+        
+        # Map to our internal schemas
+        
+        # Stage 1: Transcription
         transcription = TranscriptionResult(
-            raw_text="MMR Vaccine - 05/15/2023, Lot: ABC123, Provider: University Health Center\nTetanus Booster - 06/20/2023, Lot: XYZ789",
-            detected_language=LanguageCode.ENGLISH,
-            confidence=0.95,
-            structured_data={
-                "dates": ["2023-05-15", "2023-06-20"],
-                "vaccines": ["MMR", "Tetanus"],
-                "lot_numbers": ["ABC123", "XYZ789"]
-            }
+            raw_text=data.get("raw_text", ""),
+            detected_language=LanguageCode(data.get("detected_language", "en")) if data.get("detected_language") in [l.value for l in LanguageCode] else LanguageCode.UNKNOWN,
+            confidence=data.get("confidence", 0.0),
+            structured_data=data.get("structured_data", {})
         )
         
-        # STAGE 2: Translation (MOCK)
+        # Stage 2: Translation
+        trans_data = data.get("translation", {})
         translation = TranslationResult(
-            original_text=transcription.raw_text,
-            translated_text=transcription.raw_text,
-            source_language=LanguageCode.ENGLISH,
+            original_text=trans_data.get("original_text", transcription.raw_text),
+            translated_text=trans_data.get("translated_text", transcription.raw_text),
+            source_language=transcription.detected_language,
             target_language=LanguageCode.ENGLISH,
-            translation_confidence=1.0
+            translation_confidence=trans_data.get("confidence", 1.0)
         )
         
-        # Extract generic vaccine data (no standard applied)
-        extracted_vaccines = [
-            {
-                "vaccine_name": "MMR",
-                "date": "2023-05-15",
-                "original_text": "MMR Vaccine - 05/15/2023",
-                "lot_number": "ABC123",
-                "provider": "University Health Center"
-            },
-            {
-                "vaccine_name": "Tetanus",
-                "date": "2023-06-20",
-                "original_text": "Tetanus Booster - 06/20/2023",
-                "lot_number": "XYZ789",
-                "provider": "City Clinic"
-            }
-        ]
+        # Extracted Vaccines
+        extracted_vaccines = data.get("extracted_vaccines", [])
         
-        # TODO: Upload to Supabase Storage
+        # TODO: Upload to Supabase Storage (Mocked for now)
         image_url = f"https://supabase.example.com/storage/{record_id}.jpg"
         
         # Create result
@@ -465,6 +457,7 @@ async def upload_vaccine_record(
         return result
         
     except Exception as e:
+        print(f"Error in upload_vaccine_record: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Upload failed: {str(e)}"
@@ -524,22 +517,57 @@ async def standardize_record(
     
     # Convert extracted vaccines to VaccineRecord objects
     vaccine_records = []
+    # Convert extracted vaccines to VaccineRecord objects
+    vaccine_records = []
+    
+    # Helper map for common variations if AI misses exact Enum match
+    name_mapping = {
+        "MMR II": VaccineName.MMR,
+        "Measles Mumps Rubella": VaccineName.MMR,
+        "Td": VaccineName.TETANUS, # Often Td is acceptable for Tetanus booster
+        "DTap": VaccineName.TDAP,
+        "Varicella Zoster": VaccineName.VARICELLA,
+        "Chicken Pox": VaccineName.VARICELLA,
+        "Meningitis": VaccineName.MENINGOCOCCAL,
+        "PPD": VaccineName.TB_TEST,
+        "Mantoux": VaccineName.TB_TEST
+    }
+
     for vax in uploaded_record.extracted_vaccines:
+        v_name_str = vax["vaccine_name"]
+        
+        # Try direct Enum match
         try:
-            vaccine_records.append(
-                VaccineRecord(
-                    vaccine_name=VaccineName(vax["vaccine_name"]),
-                    date=vax["date"],
-                    status=VaccineStatus.COMPLIANT,  # TODO: Check expiration, etc.
-                    original_text=vax["original_text"],
-                    translated_text=vax.get("original_text"),
-                    lot_number=vax.get("lot_number"),
-                    provider=vax.get("provider")
-                )
-            )
+            v_name_enum = VaccineName(v_name_str)
         except ValueError:
-            # Skip vaccines that don't map to our enum
-            continue
+            # Try mapping
+            v_name_enum = name_mapping.get(v_name_str)
+            
+            # If still not found, try case-insensitive match against Enum values
+            if not v_name_enum:
+                for member in VaccineName:
+                    if member.value.lower() == v_name_str.lower():
+                        v_name_enum = member
+                        break
+            
+            # If still not found, skip or mark as Other
+            if not v_name_enum:
+                # We could log this or add to a "unknown" list
+                # For now, we skip as per original logic, or maybe map to OTHER
+                # Let's map to OTHER to preserve the record
+                v_name_enum = VaccineName.OTHER
+
+        vaccine_records.append(
+            VaccineRecord(
+                vaccine_name=v_name_enum,
+                date=vax["date"],
+                status=VaccineStatus.COMPLIANT,  # TODO: Check expiration, etc.
+                original_text=vax["original_text"],
+                translated_text=vax.get("original_text"), # This might be missing in extracted_vaccines if not passed
+                lot_number=vax.get("lot_number"),
+                provider=vax.get("provider")
+            )
+        )
     
     # Calculate compliance
     extracted_vaccine_names = {record.vaccine_name for record in vaccine_records}
@@ -567,6 +595,83 @@ async def standardize_record(
 # Note: fastapi-mcp automatically converts FastAPI endpoints to MCP tools
 # We just need to create a regular FastAPI endpoint and it will be exposed via MCP
 
+async def _analyze_image_with_ai(file_bytes: bytes) -> dict:
+    """
+    Shared helper to send image to OpenAI Vision API and extract data.
+    Returns the raw JSON response from the AI.
+    """
+    from openai import OpenAI
+    import base64
+    import json
+    
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    
+    # Encode image
+    base64_image = base64.b64encode(file_bytes).decode('utf-8')
+    
+    system_prompt = """You are a medical document OCR and extraction expert. 
+    Your task is to analyze a vaccination record image and extract structured data.
+    
+    Perform the following steps:
+    1. TRANSCRIPTION: Extract all visible text.
+    2. LANGUAGE DETECTION: Detect the primary language.
+    3. TRANSLATION: If not English, provide an English translation of the key medical text.
+    4. EXTRACTION: Extract vaccine records into a structured list.
+    
+    For each vaccine record, try to normalize the 'vaccine_name' to one of these standard values if possible:
+    MMR, Measles, Mumps, Rubella, Tetanus, Diphtheria, Pertussis, Tdap, Hepatitis A, Hepatitis B, 
+    Varicella, Meningococcal, COVID-19, Influenza, HPV, Polio, TB Test.
+    If it doesn't match, use the raw name.
+    
+    Return ONLY a JSON object with this structure:
+    {
+        "raw_text": "full extracted text...",
+        "detected_language": "en" (or "es", "fr", etc.),
+        "confidence": 0.95,
+        "translation": {
+            "original_text": "...",
+            "translated_text": "...",
+            "confidence": 1.0
+        },
+        "structured_data": {
+            "dates": ["YYYY-MM-DD", ...],
+            "vaccines": ["Name1", "Name2"],
+            "lot_numbers": ["..."]
+        },
+        "extracted_vaccines": [
+            {
+                "vaccine_name": "Standardized Or Raw Name",
+                "date": "YYYY-MM-DD",
+                "original_text": "Line from doc",
+                "lot_number": "...",
+                "provider": "..."
+            }
+        ]
+    }
+    """
+    
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Analyze this vaccination record."},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                ]
+            }
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.0
+    )
+    
+    return json.loads(response.choices[0].message.content)
+
+
 @app.post("/verify_vaccine_record", response_model=ComplianceResult)
 async def verify_vaccine_record(
     image_url: str, 
@@ -590,70 +695,108 @@ async def verify_vaccine_record(
     Returns:
         ComplianceResult with all 3 pipeline stages
     """
+    import httpx
+    from schemas import (
+        TranscriptionResult, TranslationResult, StandardizationResult,
+        VaccineRecord, VaccineStatus, VaccineName, LanguageCode, ComplianceStandard
+    )
     
     try:
         # Download image from URL
-        # TODO: Implement actual image download
-        """
-        import httpx
-        
         async with httpx.AsyncClient() as client:
             response = await client.get(image_url)
             response.raise_for_status()
             file_bytes = response.content
             
-        # Process the downloaded image through 3-stage pipeline
-        result = await _process_image(file_bytes, session_id, standard)
-        return result
-        """
+        # Process with AI
+        data = await _analyze_image_with_ai(file_bytes)
         
-        # MOCK: Return simulated 3-stage pipeline result
-        from schemas import (
-            TranscriptionResult, TranslationResult, StandardizationResult,
-            VaccineRecord, VaccineStatus, VaccineName, LanguageCode, ComplianceStandard
-        )
+        # Map to schemas (Reuse logic - ideally this should be shared but duplicating for speed)
         
         # Stage 1: Transcription
         transcription = TranscriptionResult(
-            raw_text="MMR Vaccine - 05/15/2023, Lot: ABC123",
-            detected_language=LanguageCode.ENGLISH,
-            confidence=0.92,
-            structured_data={"dates": ["2023-05-15"], "vaccines": ["MMR"]}
+            raw_text=data.get("raw_text", ""),
+            detected_language=LanguageCode(data.get("detected_language", "en")) if data.get("detected_language") in [l.value for l in LanguageCode] else LanguageCode.UNKNOWN,
+            confidence=data.get("confidence", 0.0),
+            structured_data=data.get("structured_data", {})
         )
         
         # Stage 2: Translation
+        trans_data = data.get("translation", {})
         translation = TranslationResult(
-            original_text=transcription.raw_text,
-            translated_text=transcription.raw_text,
-            source_language=LanguageCode.ENGLISH,
+            original_text=trans_data.get("original_text", transcription.raw_text),
+            translated_text=trans_data.get("translated_text", transcription.raw_text),
+            source_language=transcription.detected_language,
             target_language=LanguageCode.ENGLISH,
-            translation_confidence=1.0
+            translation_confidence=trans_data.get("confidence", 1.0)
         )
         
         # Stage 3: Standardization
-        standardization = StandardizationResult(
-            standard=ComplianceStandard(standard),
-            is_compliant=False,  # Missing required vaccines
-            records=[
+        # Convert extracted vaccines to VaccineRecord objects
+        vaccine_records = []
+        name_mapping = {
+            "MMR II": VaccineName.MMR,
+            "Measles Mumps Rubella": VaccineName.MMR,
+            "Td": VaccineName.TETANUS,
+            "DTap": VaccineName.TDAP,
+            "Varicella Zoster": VaccineName.VARICELLA,
+            "Chicken Pox": VaccineName.VARICELLA,
+            "Meningitis": VaccineName.MENINGOCOCCAL,
+            "PPD": VaccineName.TB_TEST,
+            "Mantoux": VaccineName.TB_TEST
+        }
+
+        for vax in data.get("extracted_vaccines", []):
+            v_name_str = vax["vaccine_name"]
+            try:
+                v_name_enum = VaccineName(v_name_str)
+            except ValueError:
+                v_name_enum = name_mapping.get(v_name_str)
+                if not v_name_enum:
+                    for member in VaccineName:
+                        if member.value.lower() == v_name_str.lower():
+                            v_name_enum = member
+                            break
+                if not v_name_enum:
+                    v_name_enum = VaccineName.OTHER
+
+            vaccine_records.append(
                 VaccineRecord(
-                    vaccine_name=VaccineName.MMR,
-                    date="2023-05-15",
+                    vaccine_name=v_name_enum,
+                    date=vax["date"],
                     status=VaccineStatus.COMPLIANT,
-                    original_text="MMR Vaccine - 05/15/2023",
-                    translated_text="MMR Vaccine - 05/15/2023",
-                    lot_number="ABC123",
-                    provider="University Health Center"
+                    original_text=vax["original_text"],
+                    translated_text=vax.get("original_text"),
+                    lot_number=vax.get("lot_number"),
+                    provider=vax.get("provider")
                 )
-            ],
-            missing_vaccines=[VaccineName.TETANUS, VaccineName.HEPATITIS_B],
-            compliance_notes=f"Missing required vaccines for {standard}"
+            )
+            
+        # Check compliance
+        required_vaccines_map = {
+            "us_cdc": {VaccineName.MMR, VaccineName.TETANUS, VaccineName.HEPATITIS_B},
+            "cornell_tech": {VaccineName.MMR, VaccineName.TETANUS, VaccineName.HEPATITIS_B, 
+                           VaccineName.MENINGOCOCCAL, VaccineName.TB_TEST}
+        }
+        
+        extracted_names = {r.vaccine_name for r in vaccine_records}
+        required = required_vaccines_map.get(standard, set())
+        missing = list(required - extracted_names)
+        is_compliant = len(missing) == 0
+        
+        standardization = StandardizationResult(
+            standard=ComplianceStandard(standard) if standard in [s.value for s in ComplianceStandard] else ComplianceStandard.US_CDC,
+            is_compliant=is_compliant,
+            records=vaccine_records,
+            missing_vaccines=missing,
+            compliance_notes=f"Validated against {standard}"
         )
         
         result = ComplianceResult(
             transcription=transcription,
             translation=translation,
             standardization=standardization,
-            overall_confidence=0.96,
+            overall_confidence=transcription.confidence,
             image_url=image_url,
             session_id=session_id,
             processed_at=datetime.utcnow().isoformat()

@@ -6,3 +6,4 @@ openai
 supabase
 fastapi-mcp
 python-multipart
+httpx
