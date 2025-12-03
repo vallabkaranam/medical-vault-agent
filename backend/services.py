@@ -1,6 +1,7 @@
 import os
 import json
 from typing import List, Dict
+from schemas import (
     StandardizationResult, VaccineRecord, VaccineStatus, VaccineName, ComplianceStandard,
     TranscriptionResult, TranslationResult, LanguageCode
 )

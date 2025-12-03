@@ -319,3 +319,37 @@ class HealthResponse(BaseModel):
         default="Transcription → Translation → Standardization",
         description="Pipeline architecture"
     )
+
+
+# ============================================================================
+# AGENT-OPTIMIZED MODELS (Voice 2)
+# ============================================================================
+
+class AgentError(BaseModel):
+    """
+    Standardized error format for AI agents.
+    Allows agents to reason about failures (e.g., retry on DOWNLOAD_ERROR).
+    """
+    code: str = Field(..., description="Machine-readable error code (e.g., IMAGE_NOT_FOUND)")
+    message: str = Field(..., description="Human-readable error message")
+    suggestion: Optional[str] = Field(None, description="Suggestion for the agent on how to proceed")
+
+
+class AgentComplianceResponse(BaseModel):
+    """
+    Token-efficient, flat response optimized for LLM agents.
+    Surfaces the most critical decision-making data to the top level.
+    """
+    is_compliant: bool = Field(..., description="Is the record compliant with the standard?")
+    missing_vaccines: List[str] = Field(..., description="List of missing vaccine names")
+    extracted_vaccines: List[str] = Field(..., description="List of vaccines found in the record")
+    compliance_summary: str = Field(..., description="Natural language summary of the compliance status")
+    
+    # Detailed evidence (nested but optional/secondary)
+    evidence: Optional[Dict] = Field(
+        None, 
+        description="Detailed evidence including dates and providers if needed for deep verification"
+    )
+    
+    overall_confidence: float = Field(..., description="Confidence score of the analysis")
+

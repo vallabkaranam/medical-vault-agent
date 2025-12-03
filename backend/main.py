@@ -33,7 +33,8 @@ from schemas import (
     ComplianceStandard,
     LanguageCode,
     TranscriptionResult, 
-    TranslationResult
+    TranslationResult,
+    AgentComplianceResponse
 )
 
 # Import core services
@@ -295,14 +296,15 @@ async def generate_session_report(
 # VOICE 2: MCP Server (For AI Agents via Claude Desktop/Cursor)
 # ============================================================================
 
-@app.post("/verify_vaccine_record", response_model=ComplianceResult)
+@app.post("/verify_vaccine_record", response_model=AgentComplianceResponse)
 async def verify_vaccine_record(
     image_url: str, 
     session_id: Optional[str] = None,
     standard: str = "us_cdc"
-) -> ComplianceResult:
+) -> AgentComplianceResponse:
     """
-    MCP Tool: Verify a vaccination record from an image URL.
+    MCP Tool (HTTP Adapter): Verify a vaccination record from an image URL.
+    Returns an agent-optimized, flat response.
     """
     import httpx
     
@@ -322,17 +324,29 @@ async def verify_vaccine_record(
         # Stage 3: Standardization
         standardization = perform_standardization(standard, extracted_vaccines)
         
-        result = ComplianceResult(
-            transcription=transcription,
-            translation=translation,
-            standardization=standardization,
-            overall_confidence=transcription.confidence,
-            image_url=image_url,
-            session_id=session_id,
-            processed_at=datetime.utcnow().isoformat()
-        )
+        # Construct Agent-Optimized Result
+        found_vax_names = [v.vaccine_name.value for v in standardization.records]
+        missing_vax_names = [v.value for v in standardization.missing_vaccines]
         
-        return result
+        evidence = {
+            "vaccines": [
+                {
+                    "name": v.vaccine_name.value,
+                    "date": v.date,
+                    "provider": v.provider
+                } for v in standardization.records
+            ],
+            "original_text_snippet": transcription.raw_text[:200] + "..." if len(transcription.raw_text) > 200 else transcription.raw_text
+        }
+        
+        return AgentComplianceResponse(
+            is_compliant=standardization.is_compliant,
+            missing_vaccines=missing_vax_names,
+            extracted_vaccines=found_vax_names,
+            compliance_summary=standardization.compliance_notes or "Analysis complete.",
+            evidence=evidence,
+            overall_confidence=transcription.confidence
+        )
         
     except Exception as e:
         raise HTTPException(
