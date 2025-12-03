@@ -1,145 +1,159 @@
-# Personal Vault: Medical Compliance Microservice
+# Personal Vault: Agentic Medical Compliance Microservice
 
-> **"One Brain, Two Voices"**
-> A hybrid full-stack application that serves both Humans (via React) and AI Agents (via MCP).
-
-![Unified View](https://github.com/vallabkaranam/medical-vault-agent/raw/main/unified_view_screenshot.png)
-
-## 🚀 Overview
-
-Personal Vault is an intelligent medical record aggregator that solves the problem of fragmented health history. It allows users to upload vaccination records in any format or language, digitizes them using GPT-4o Vision, and standardizes them against global health requirements (US CDC, Cornell Tech, UK NHS).
-
-### Key Features
-*   **Universal Ingestion**: Accepts photos, PDFs, and handwriting in any language.
-*   **AI-Powered Pipeline**:
-    1.  **Transcription**: OCR with 99% accuracy.
-    2.  **Translation**: Auto-detects and translates non-English records.
-    3.  **Standardization**: Maps generic terms ("Chicken Pox") to medical standards ("Varicella").
-*   **Unified View**: Aggregates data from multiple uploads into a single timeline.
-*   **Compliance Engine**: Checks against specific institutional requirements (e.g., Cornell Tech).
-*   **Dual Interface**:
-    *   **Voice 1 (Human)**: A beautiful React + Vite frontend.
-    *   **Voice 2 (Agent)**: A Model Context Protocol (MCP) server for Claude/Cursor.
+<div align="center">
+  <h3>One Brain, Two Voices.</h3>
+  <p>A hybrid microservice architecture bridging the gap between human interfaces and AI agents.</p>
+</div>
 
 ---
 
-## 🏗️ Architecture
+## 🧠 The Problem
 
-The project follows a **Monorepo** structure with a shared "Brain" (Service Layer).
+In a globalized world, medical records are fragmented, unstandardized, and often in different languages. Verifying compliance for schools, travel, or jobs is a manual, error-prone process.
 
+**Personal Vault** solves this by creating a "Universal Translator" for medical compliance. It ingests raw documents, extracts data using Vision AI, and standardizes it against rigorous health protocols (CDC, NHS, Cornell Tech).
+
+## 🏗 Architecture: "One Brain, Two Voices"
+
+This project demonstrates a novel **Agentic Architecture** pattern. Instead of building separate backends for the frontend app and AI agents, we build a single core logic layer ("The Brain") and expose it through two distinct interfaces ("Voices").
+
+```mermaid
+graph TD
+    subgraph "The Brain (Core Logic)"
+        S[Services Layer]
+        AI[OpenAI Vision GPT-4o]
+        DB[(Supabase)]
+    end
+
+    subgraph "Voice 1: Human Interface"
+        React[React Frontend] -->|REST API| API[FastAPI Server]
+        API --> S
+    end
+
+    subgraph "Voice 2: Agent Interface"
+        Claude[Claude / Cursor] -->|MCP Protocol| MCP[MCP Server]
+        MCP --> S
+    end
+
+    S --> AI
+    S --> DB
 ```
-medical-vault/
-├── backend/               # Python FastAPI + MCP
-│   ├── main.py           # Voice 1: REST API (FastAPI)
-│   ├── mcp_server.py     # Voice 2: MCP Server (Stdio)
-│   ├── services.py       # The Brain: Core AI & Standardization Logic
-│   ├── schemas.py        # Shared Data Contracts (Pydantic)
-│   └── requirements.txt
-│
-└── frontend/             # React + Vite + Tailwind
-    ├── src/
-    │   ├── components/   # Modular UI Components
-    │   ├── api.js        # API Client
-    │   └── App.jsx       # Main Orchestrator
-    └── ...
-```
 
-### Tech Stack
-*   **Frontend**: React, Vite, TailwindCSS, Framer Motion, Lucide Icons.
-*   **Backend**: Python, FastAPI, Pydantic, MCP (Model Context Protocol).
-*   **AI**: OpenAI GPT-4o Vision.
-*   **Storage**: Supabase (PostgreSQL + Storage Buckets).
-*   **Deployment**: Vercel (Frontend) + Render (Backend).
+### Voice 1: The Human Interface (REST)
+- **Consumer**: React Frontend (Humans)
+- **Protocol**: HTTP / REST
+- **Design**: Rich, visual, interactive. Handles file uploads, progress bars, and visual verification.
+- **Tech**: FastAPI, React, Tailwind v4, Framer Motion.
+
+### Voice 2: The Agent Interface (MCP)
+- **Consumer**: AI Agents (Claude Desktop, Cursor, IDEs)
+- **Protocol**: Model Context Protocol (MCP)
+- **Design**: Token-efficient, deterministic, stateless.
+- **Tech**: FastMCP, Pydantic, Agent-Optimized Schemas.
 
 ---
 
-## 🛠️ Setup & Installation
+## 🛠 Technology Stack
+
+### Backend (The Brain)
+- **Language**: Python 3.11+
+- **Framework**: FastAPI (REST) + FastMCP (Agent Protocol)
+- **AI Model**: OpenAI GPT-4o (Vision & Reasoning)
+- **Database**: Supabase (PostgreSQL + Storage)
+- **Validation**: Pydantic (Strict Schema Enforcement)
+
+### Frontend (The Face)
+- **Framework**: React + Vite
+- **Styling**: Tailwind CSS v4 (Glassmorphism Design System)
+- **Animation**: Framer Motion (60fps transitions)
+- **Icons**: Lucide React
+
+---
+
+## 🤖 Agentic Design Patterns
+
+This project implements best practices for building **Agent-Native Tools**:
+
+1.  **Token-Optimized Responses**:
+    *   *Bad*: Returning a 5MB raw JSON dump.
+    *   *Good*: Returning a flat `AgentComplianceResponse` with `is_compliant` bool and `missing_vaccines` list.
+    *   *Why*: Saves context window, reduces hallucination risk.
+
+2.  **Machine-Readable Errors**:
+    *   Errors return structured codes (`IMAGE_NOT_FOUND`, `DOWNLOAD_ERROR`) and "Suggestions" for the agent (e.g., "Try searching for a different image URL").
+    *   Allows the agent to self-heal and retry strategies.
+
+3.  **Stateless Atomicity**:
+    *   Each tool call (`verify_vaccine_record`) is self-contained. The agent doesn't need to "remember" previous steps, making long-running workflows robust.
+
+4.  **Semantic Typing**:
+    *   Uses `Enum` (e.g., `VaccineName.MMR`) to ground AI outputs in strict code constants, preventing "fuzzy" string matching issues.
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-*   Node.js 18+
-*   Python 3.9+
-*   OpenAI API Key
-*   Supabase Project
+- Python 3.11+
+- Node.js 18+
+- OpenAI API Key
+- Supabase Project Credentials
 
 ### 1. Backend Setup
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Create .env file
+# Configure Environment
 cp .env.example .env
-# Add your OPENAI_API_KEY, SUPABASE_URL, and SUPABASE_KEY
+# Add your OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY
 ```
 
-**Run REST API (Voice 1):**
+### 2. Run Voice 1 (REST API)
+For the React App:
 ```bash
-uvicorn main:app --reload
-# Available at http://localhost:8000
+uvicorn main:app --reload --port 8000
 ```
 
-**Run MCP Server (Voice 2):**
+### 3. Run Voice 2 (MCP Server)
+For AI Agents (Claude/Cursor):
 ```bash
-mcp run mcp_server.py
+python mcp_server.py
 ```
+*Note: Configure your MCP client (e.g., Claude Desktop config) to point to this script.*
 
-### 2. Frontend Setup
+### 4. Run Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
-# Available at http://localhost:5173
 ```
 
 ---
 
-## 🤖 Using with Claude Desktop (MCP)
+## 🧪 Testing & Verification
 
-You can connect Claude Desktop to this project to give it the ability to "see" and verify medical records.
+We include a specialized test script to verify the **Agent Voice** behaves as expected (simulating an LLM tool call):
 
-1.  Open your Claude Desktop config file:
-    *   macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-    *   Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-2.  Add this configuration:
-```json
-{
-  "mcpServers": {
-    "medical-vault": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/ABSOLUTE/PATH/TO/medical-vault/backend",
-        "run",
-        "mcp_server.py"
-      ],
-      "env": {
-        "OPENAI_API_KEY": "sk-..."
-      }
-    }
-  }
-}
+```bash
+# Run in Mock Mode (No API Cost)
+export MOCK_AI=true
+python backend/tests/test_agent_voice.py
 ```
-*(Note: We recommend using `uv` for fast Python execution, but `python` works too if dependencies are installed globally).*
-
-3.  Restart Claude. You can now ask:
-    > "Here is a link to my vaccine card: [URL]. Is it compliant with Cornell Tech requirements?"
 
 ---
 
-## 🌍 Deployment
+## 🔮 Future Roadmap
 
-*   **Backend**: Automatically deploys to **Render** via `render.yaml`.
-*   **Frontend**: Deploys to **Vercel**. Set `VITE_API_URL` to your Render backend URL.
-
----
-
-## 🛡️ Security & Privacy
-*   **HIPAA Compliance**: The architecture is designed to be stateless where possible.
-*   **Encryption**: Data at rest in Supabase is encrypted.
-*   **Ephemeral Processing**: The "Brain" processes data in-memory during the AI analysis phase.
+- [ ] **Wearable Integration**: Ingest Apple Health / Fitbit data for real-time vitals.
+- [ ] **RAG Knowledge Base**: Add a "Medical Policy" vector store so agents can query *why* a record is non-compliant.
+- [ ] **Multi-Modal Output**: Allow the agent to generate PDF certificates of compliance.
 
 ---
 
-© 2025 Personal Vault Inc.
+<div align="center">
+  <p>Built with ❤️ by Vallab Karanam</p>
+  <p><i>Demonstrating the future of Agentic Engineering</i></p>
+</div>
