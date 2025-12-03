@@ -174,7 +174,7 @@ async def upload_vaccine_record(
             )
             
             # Get Public URL
-            image_url = supabase.storage.from_(bucket_name).get_public_url(filename)
+            image_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}"
             
         except Exception as e:
             print(f"Supabase Upload Failed: {e}")
