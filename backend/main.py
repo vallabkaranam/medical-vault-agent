@@ -37,7 +37,8 @@ from schemas import (
 )
 
 # Import core services
-from services import perform_standardization, analyze_image_with_ai
+# Import core services
+from services import perform_standardization, analyze_image_with_ai, process_ai_result
 
 # Load environment variables
 load_dotenv()
@@ -132,28 +133,8 @@ async def upload_vaccine_record(
         # Process with AI
         data = await analyze_image_with_ai(file_bytes, OPENAI_API_KEY)
         
-        # Map to our internal schemas
-        
-        # Stage 1: Transcription
-        transcription = TranscriptionResult(
-            raw_text=data.get("raw_text", ""),
-            detected_language=LanguageCode(data.get("detected_language", "en")) if data.get("detected_language") in [l.value for l in LanguageCode] else LanguageCode.UNKNOWN,
-            confidence=data.get("confidence", 0.0),
-            structured_data=data.get("structured_data", {})
-        )
-        
-        # Stage 2: Translation
-        trans_data = data.get("translation", {})
-        translation = TranslationResult(
-            original_text=trans_data.get("original_text", transcription.raw_text),
-            translated_text=trans_data.get("translated_text", transcription.raw_text),
-            source_language=transcription.detected_language,
-            target_language=LanguageCode.ENGLISH,
-            translation_confidence=trans_data.get("confidence", 1.0)
-        )
-        
-        # Extracted Vaccines
-        extracted_vaccines = data.get("extracted_vaccines", [])
+        # Map to our internal schemas using shared helper
+        transcription, translation, extracted_vaccines = process_ai_result(data)
         
         # Upload to Supabase Storage
         try:
@@ -336,27 +317,10 @@ async def verify_vaccine_record(
         data = await analyze_image_with_ai(file_bytes, OPENAI_API_KEY)
         
         # Map to schemas
-        
-        # Stage 1: Transcription
-        transcription = TranscriptionResult(
-            raw_text=data.get("raw_text", ""),
-            detected_language=LanguageCode(data.get("detected_language", "en")) if data.get("detected_language") in [l.value for l in LanguageCode] else LanguageCode.UNKNOWN,
-            confidence=data.get("confidence", 0.0),
-            structured_data=data.get("structured_data", {})
-        )
-        
-        # Stage 2: Translation
-        trans_data = data.get("translation", {})
-        translation = TranslationResult(
-            original_text=trans_data.get("original_text", transcription.raw_text),
-            translated_text=trans_data.get("translated_text", transcription.raw_text),
-            source_language=transcription.detected_language,
-            target_language=LanguageCode.ENGLISH,
-            translation_confidence=trans_data.get("confidence", 1.0)
-        )
+        transcription, translation, extracted_vaccines = process_ai_result(data)
         
         # Stage 3: Standardization
-        standardization = perform_standardization(standard, data.get("extracted_vaccines", []))
+        standardization = perform_standardization(standard, extracted_vaccines)
         
         result = ComplianceResult(
             transcription=transcription,

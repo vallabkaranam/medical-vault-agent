@@ -1,8 +1,8 @@
 import os
 import json
 from typing import List, Dict
-from schemas import (
-    StandardizationResult, VaccineRecord, VaccineStatus, VaccineName, ComplianceStandard
+    StandardizationResult, VaccineRecord, VaccineStatus, VaccineName, ComplianceStandard,
+    TranscriptionResult, TranslationResult, LanguageCode
 )
 
 def perform_standardization(standard: str, extracted_vaccines: List[Dict]) -> StandardizationResult:
@@ -199,3 +199,31 @@ async def analyze_image_with_ai(file_bytes: bytes, openai_api_key: str) -> dict:
     )
     
     return json.loads(response.choices[0].message.content)
+
+def process_ai_result(data: dict) -> tuple[TranscriptionResult, TranslationResult, List[Dict]]:
+    """
+    Shared helper to convert raw AI JSON into typed Pydantic models for the pipeline stages.
+    Returns: (transcription, translation, extracted_vaccines)
+    """
+    # Stage 1: Transcription
+    transcription = TranscriptionResult(
+        raw_text=data.get("raw_text", ""),
+        detected_language=LanguageCode(data.get("detected_language", "en")) if data.get("detected_language") in [l.value for l in LanguageCode] else LanguageCode.UNKNOWN,
+        confidence=data.get("confidence", 0.0),
+        structured_data=data.get("structured_data", {})
+    )
+    
+    # Stage 2: Translation
+    trans_data = data.get("translation", {})
+    translation = TranslationResult(
+        original_text=trans_data.get("original_text", transcription.raw_text),
+        translated_text=trans_data.get("translated_text", transcription.raw_text),
+        source_language=transcription.detected_language,
+        target_language=LanguageCode.ENGLISH,
+        translation_confidence=trans_data.get("confidence", 1.0)
+    )
+    
+    # Extracted Vaccines (Raw)
+    extracted_vaccines = data.get("extracted_vaccines", [])
+    
+    return transcription, translation, extracted_vaccines

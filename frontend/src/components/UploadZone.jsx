@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { UploadCloud, File, X, Image as ImageIcon } from 'lucide-react';
+import { UploadCloud, File, Image as ImageIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export function UploadZone({ onFileSelect }) {
