@@ -159,6 +159,6 @@ python backend/tests/test_agent_voice.py
 ---
 
 <div align="center">
-  <p>Built with ❤️ by Vallab Karanam</p>
+  <p>© 2025 Personal Vault Inc. All Rights Reserved.</p>
   <p><i>Demonstrating the future of Agentic Engineering</i></p>
 </div>
