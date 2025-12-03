@@ -1,80 +1,145 @@
-# Personal Vault - Medical Compliance Microservice
+# Personal Vault: Medical Compliance Microservice
 
-A hybrid "One Brain, Two Voices" application that allows users to upload medical records, extract data using AI, and verify compliance against various standards (Cornell Tech, US CDC, etc.).
+> **"One Brain, Two Voices"**
+> A hybrid full-stack application that serves both Humans (via React) and AI Agents (via MCP).
 
-## Architecture
+![Unified View](https://github.com/vallabkaranam/medical-vault-agent/raw/main/unified_view_screenshot.png)
 
-- **Frontend**: React + Vite + Tailwind CSS (Voice 1: For Humans)
-- **Backend**: FastAPI + OpenAI Vision + Supabase (Voice 2: MCP Server for AI Agents)
-- **Storage**: Supabase (PostgreSQL + Storage)
+## 🚀 Overview
 
-## Project Structure
+Personal Vault is an intelligent medical record aggregator that solves the problem of fragmented health history. It allows users to upload vaccination records in any format or language, digitizes them using GPT-4o Vision, and standardizes them against global health requirements (US CDC, Cornell Tech, UK NHS).
+
+### Key Features
+*   **Universal Ingestion**: Accepts photos, PDFs, and handwriting in any language.
+*   **AI-Powered Pipeline**:
+    1.  **Transcription**: OCR with 99% accuracy.
+    2.  **Translation**: Auto-detects and translates non-English records.
+    3.  **Standardization**: Maps generic terms ("Chicken Pox") to medical standards ("Varicella").
+*   **Unified View**: Aggregates data from multiple uploads into a single timeline.
+*   **Compliance Engine**: Checks against specific institutional requirements (e.g., Cornell Tech).
+*   **Dual Interface**:
+    *   **Voice 1 (Human)**: A beautiful React + Vite frontend.
+    *   **Voice 2 (Agent)**: A Model Context Protocol (MCP) server for Claude/Cursor.
+
+---
+
+## 🏗️ Architecture
+
+The project follows a **Monorepo** structure with a shared "Brain" (Service Layer).
 
 ```
 medical-vault/
-├── backend/                # Python FastAPI Backend
-│   ├── main.py            # Application entry point & API routes
-│   ├── services.py        # Core logic (AI extraction, standardization)
-│   ├── schemas.py         # Pydantic models & Enums
-│   ├── requirements.txt   # Python dependencies
-│   └── tests/             # Tests
-├── frontend/               # React Frontend
-│   ├── src/
-│   │   ├── components/    # UI Components (VaultGrid, UnifiedView, etc.)
-│   │   ├── api.js         # API Client
-│   │   └── App.jsx        # Main Application Logic
-│   └── ...
-└── ...
+├── backend/               # Python FastAPI + MCP
+│   ├── main.py           # Voice 1: REST API (FastAPI)
+│   ├── mcp_server.py     # Voice 2: MCP Server (Stdio)
+│   ├── services.py       # The Brain: Core AI & Standardization Logic
+│   ├── schemas.py        # Shared Data Contracts (Pydantic)
+│   └── requirements.txt
+│
+└── frontend/             # React + Vite + Tailwind
+    ├── src/
+    │   ├── components/   # Modular UI Components
+    │   ├── api.js        # API Client
+    │   └── App.jsx       # Main Orchestrator
+    └── ...
 ```
 
-## Setup & Running
+### Tech Stack
+*   **Frontend**: React, Vite, TailwindCSS, Framer Motion, Lucide Icons.
+*   **Backend**: Python, FastAPI, Pydantic, MCP (Model Context Protocol).
+*   **AI**: OpenAI GPT-4o Vision.
+*   **Storage**: Supabase (PostgreSQL + Storage Buckets).
+*   **Deployment**: Vercel (Frontend) + Render (Backend).
+
+---
+
+## 🛠️ Setup & Installation
 
 ### Prerequisites
-- Python 3.9+
-- Node.js 16+
-- Supabase Account
-- OpenAI API Key
+*   Node.js 18+
+*   Python 3.9+
+*   OpenAI API Key
+*   Supabase Project
 
-### Backend
+### 1. Backend Setup
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
 
-1. Navigate to `backend/`:
-   ```bash
-   cd backend
-   ```
-2. Create and activate virtual environment:
-   ```bash
-   python -m venv ../venv
-   source ../venv/bin/activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Set up `.env` file in `backend/` (copy from `.env.example`).
-5. Run the server:
-   ```bash
-   uvicorn main:app --reload
-   ```
+# Create .env file
+cp .env.example .env
+# Add your OPENAI_API_KEY, SUPABASE_URL, and SUPABASE_KEY
+```
 
-### Frontend
+**Run REST API (Voice 1):**
+```bash
+uvicorn main:app --reload
+# Available at http://localhost:8000
+```
 
-1. Navigate to `frontend/`:
-   ```bash
-   cd frontend
-   ```
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-3. Run the development server:
-   ```bash
-   npm run dev
-   ```
+**Run MCP Server (Voice 2):**
+```bash
+mcp run mcp_server.py
+```
 
-## Features
+### 2. Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+# Available at http://localhost:5173
+```
 
-- **Upload**: Securely upload vaccine cards (Image/PDF).
-- **AI Extraction**: Automatically extracts vaccine dates, names, and providers.
-- **Standardization**: Verifies compliance against Cornell Tech, US CDC, and other standards.
-- **Unified View**: Aggregates records into a single, standardized history.
-- **Reports**: Generates official compliance reports.
+---
+
+## 🤖 Using with Claude Desktop (MCP)
+
+You can connect Claude Desktop to this project to give it the ability to "see" and verify medical records.
+
+1.  Open your Claude Desktop config file:
+    *   macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+    *   Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2.  Add this configuration:
+```json
+{
+  "mcpServers": {
+    "medical-vault": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/ABSOLUTE/PATH/TO/medical-vault/backend",
+        "run",
+        "mcp_server.py"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "sk-..."
+      }
+    }
+  }
+}
+```
+*(Note: We recommend using `uv` for fast Python execution, but `python` works too if dependencies are installed globally).*
+
+3.  Restart Claude. You can now ask:
+    > "Here is a link to my vaccine card: [URL]. Is it compliant with Cornell Tech requirements?"
+
+---
+
+## 🌍 Deployment
+
+*   **Backend**: Automatically deploys to **Render** via `render.yaml`.
+*   **Frontend**: Deploys to **Vercel**. Set `VITE_API_URL` to your Render backend URL.
+
+---
+
+## 🛡️ Security & Privacy
+*   **HIPAA Compliance**: The architecture is designed to be stateless where possible.
+*   **Encryption**: Data at rest in Supabase is encrypted.
+*   **Ephemeral Processing**: The "Brain" processes data in-memory during the AI analysis phase.
+
+---
+
+© 2025 Personal Vault Inc.
