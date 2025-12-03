@@ -116,20 +116,25 @@ cp .env.example .env
 # Add your OPENAI_API_KEY, SUPABASE_URL, SUPABASE_KEY
 ```
 
-### 2. Run Voice 1 (REST API)
+### 2. Database Setup (Supabase)
+Run the SQL script in `backend/schema.sql` in your Supabase SQL Editor to create the required tables and storage buckets.
+- Creates `compliance_results` table (stores JSONB analysis).
+- Creates `vaccine-records` storage bucket.
+
+### 3. Run Voice 1 (REST API)
 For the React App:
 ```bash
 uvicorn main:app --reload --port 8000
 ```
 
-### 3. Run Voice 2 (MCP Server)
+### 4. Run Voice 2 (MCP Server)
 For AI Agents (Claude/Cursor):
 ```bash
 python mcp_server.py
 ```
 *Note: Configure your MCP client (e.g., Claude Desktop config) to point to this script.*
 
-### 4. Run Frontend
+### 5. Run Frontend
 ```bash
 cd frontend
 npm install
