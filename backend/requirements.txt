@@ -6,3 +6,4 @@ openai
 supabase
 python-multipart
 httpx[http2]
+mcp
