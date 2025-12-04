@@ -20,7 +20,7 @@ def test_pipeline():
     try:
         with open(TEST_IMAGE_PATH, "rb") as f:
             files = {"file": ("test_record.jpg", f, "image/jpeg")}
-            response = httpx.post(f"{BASE_URL}/upload", files=files)
+            response = httpx.post(f"{BASE_URL}/upload", files=files, timeout=30.0)
             
         if response.status_code != 200:
             print(f"Upload failed: {response.status_code} - {response.text}")

@@ -124,7 +124,6 @@ async def upload_vaccine_record(
     """
     Upload and extract vaccine data (generic format, no standard applied).
     """
-    """
     
     # Validate file type
     allowed_types = ["image/jpeg", "image/png", "image/jpg", "application/pdf"]
@@ -328,8 +327,6 @@ async def verify_vaccine_record(
 ) -> AgentComplianceResponse:
     """
     MCP Tool (HTTP Adapter): Verify a vaccination record from an image URL.
-    Returns an agent-optimized, flat response.
-    """
     Returns an agent-optimized, flat response.
     """
     
