@@ -34,3 +34,12 @@ create policy "Public Access"
 create policy "Public Upload"
   on storage.objects for insert
   with check ( bucket_id = 'vaccine-records' );
+
+-- Analytics Table (for Instrumentation requirement)
+create table analytics_events (
+  id uuid default uuid_generate_v4() primary key,
+  session_id text,
+  event_type text not null, -- e.g., 'APP_OPEN', 'UPLOAD_COMPLETE', 'STANDARDIZE_RUN'
+  event_data jsonb,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);

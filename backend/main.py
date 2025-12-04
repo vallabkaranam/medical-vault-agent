@@ -16,9 +16,12 @@ from typing import Optional, List
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
-# from fastapi_mcp import FastApiMCP
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import uuid
+import httpx
+from supabase import create_client, Client
 
 # Import our data contract
 from schemas import (
@@ -37,7 +40,6 @@ from schemas import (
     AgentComplianceResponse
 )
 
-# Import core services
 # Import core services
 from services import perform_standardization, analyze_image_with_ai, process_ai_result
 
@@ -76,6 +78,22 @@ app.add_middleware(
 # TODO: Replace with Redis or database in production
 uploaded_records = {}
 
+# Helper for Analytics
+async def log_analytics_event(session_id: str, event_type: str, data: dict = None):
+    try:
+        if not SUPABASE_URL or not SUPABASE_KEY:
+            return
+            
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase.table("analytics_events").insert({
+            "session_id": session_id,
+            "event_type": event_type,
+            "event_data": data or {}
+        }).execute()
+    except Exception as e:
+        print(f"Analytics Error: {e}")
+
+
 
 # ============================================================================
 # VOICE 1: REST API (For Humans via React Frontend)
@@ -106,7 +124,7 @@ async def upload_vaccine_record(
     """
     Upload and extract vaccine data (generic format, no standard applied).
     """
-    import uuid
+    """
     
     # Validate file type
     allowed_types = ["image/jpeg", "image/png", "image/jpg", "application/pdf"]
@@ -139,8 +157,6 @@ async def upload_vaccine_record(
         
         # Upload to Supabase Storage
         try:
-            from supabase import create_client, Client
-            
             # Initialize Supabase client
             supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
             
@@ -175,6 +191,9 @@ async def upload_vaccine_record(
         
         # Cache the uploaded record
         uploaded_records[record_id] = result
+        
+        # Log Analytics
+        await log_analytics_event(session_id, "UPLOAD_COMPLETE", {"record_id": record_id})
         
         return result
         
@@ -228,8 +247,6 @@ async def standardize_record(
     
     # Save to Database
     try:
-        from supabase import create_client, Client
-        
         # Initialize Supabase client
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         
@@ -249,6 +266,13 @@ async def standardize_record(
         
     except Exception as e:
         print(f"Warning: Failed to save to database: {e}")
+    
+    # Log Analytics
+    await log_analytics_event(uploaded_record.session_id, "STANDARDIZATION_RUN", {
+        "record_id": request.record_id,
+        "standard": standard,
+        "is_compliant": result.is_compliant
+    })
     
     return result
 
@@ -306,7 +330,8 @@ async def verify_vaccine_record(
     MCP Tool (HTTP Adapter): Verify a vaccination record from an image URL.
     Returns an agent-optimized, flat response.
     """
-    import httpx
+    Returns an agent-optimized, flat response.
+    """
     
     try:
         # Download image from URL

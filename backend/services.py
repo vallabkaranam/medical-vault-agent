@@ -5,6 +5,9 @@ from schemas import (
     StandardizationResult, VaccineRecord, VaccineStatus, VaccineName, ComplianceStandard,
     TranscriptionResult, TranslationResult, LanguageCode
 )
+import asyncio
+from openai import OpenAI
+import base64
 
 def perform_standardization(standard: str, extracted_vaccines: List[Dict]) -> StandardizationResult:
     """
@@ -96,7 +99,6 @@ async def analyze_image_with_ai(file_bytes: bytes, openai_api_key: str) -> dict:
     # CHECK FOR MOCK MODE TO SAVE COSTS
     if os.getenv("MOCK_AI", "false").lower() == "true":
         print("🔮 USING MOCK AI RESPONSE (Cost Saving Mode)")
-        import asyncio
         await asyncio.sleep(2.0) # Simulate network delay for "magical" feel
         return {
             "raw_text": "MOCK DATA: MMR Vaccine - 05/15/2023, Lot: ABC123, Provider: University Health Center\n"
@@ -130,9 +132,6 @@ async def analyze_image_with_ai(file_bytes: bytes, openai_api_key: str) -> dict:
                 }
             ]
         }
-
-    from openai import OpenAI
-    import base64
     
     client = OpenAI(api_key=openai_api_key)
     
