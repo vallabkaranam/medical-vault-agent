@@ -9,17 +9,19 @@ This FastAPI application exposes the same core logic through two interfaces:
 The design demonstrates "Agentic Architecture" and "Product Engineering" principles.
 """
 
-import os
 import logging
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body, status
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+from fastapi.responses import JSONResponse
 import httpx
 from supabase import create_client, Client
+
+# Import configuration
+from config import config
 
 # Import our data contract
 from schemas import (
@@ -42,26 +44,25 @@ from schemas import (
 from services import perform_standardization, analyze_image_with_ai, process_ai_result
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
+# Validate configuration on startup
+missing_config = config.validate()
+if missing_config:
+    logger.warning(f"Missing required configuration: {', '.join(missing_config)}")
+    logger.warning("Some features may not work correctly.")
 
-# Environment configuration
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# Validate required environment variables
-if not all([SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY]):
-    logger.warning("Missing required environment variables. Please set: SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY")
-
-# Initialize FastAPI
+# Initialize FastAPI with configuration
 app = FastAPI(
-    title="Personal Vault API",
-    description="Medical Compliance Microservice - Upload Once, Standardize Many Times",
-    version="2.1.0",
+    title=config.APP_NAME,
+    description=config.APP_DESCRIPTION,
+    version=config.APP_VERSION,
+    docs_url="/docs" if not config.is_production() else None,  # Disable docs in production
+    redoc_url="/redoc" if not config.is_production() else None,
 )
 
 # Configure CORS for React frontend
@@ -79,19 +80,27 @@ app.add_middleware(
 uploaded_records: Dict[str, UploadResult] = {}
 
 # Helper for Analytics
-async def log_analytics_event(session_id: Optional[str], event_type: str, data: dict = None):
+async def log_analytics_event(session_id: Optional[str], event_type: str, data: dict = None) -> None:
+    """
+    Log analytics events to Supabase.
+    
+    Args:
+        session_id: User session identifier
+        event_type: Type of event (e.g., 'UPLOAD_COMPLETE')
+        data: Additional event data
+    """
     try:
-        if not SUPABASE_URL or not SUPABASE_KEY or not session_id:
+        if not config.SUPABASE_URL or not config.SUPABASE_KEY or not session_id:
             return
             
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
         supabase.table("analytics_events").insert({
             "session_id": session_id,
             "event_type": event_type,
             "event_data": data or {}
         }).execute()
     except Exception as e:
-        logger.error(f"Analytics Error: {e}")
+        logger.error(f"Analytics logging failed: {e}", exc_info=True)
 
 
 
@@ -116,32 +125,45 @@ async def health_check():
 # NEW API v2.1: Separated Upload and Standardization
 # ============================================================================
 
-@app.post("/upload", response_model=UploadResult)
+@app.post("/upload", response_model=UploadResult, status_code=status.HTTP_200_OK)
 async def upload_vaccine_record(
     file: UploadFile = File(..., description="Vaccination record image (JPG, PNG, PDF)"),
     session_id: Optional[str] = Form(None, description="Optional session ID for tracking")
 ):
     """
     Upload and extract vaccine data (generic format, no standard applied).
+    
+    This endpoint performs OCR and data extraction using OpenAI Vision API.
+    The extracted data is stored in-memory and can be standardized later
+    against different compliance standards.
+    
+    Args:
+        file: Uploaded vaccination record image
+        session_id: Optional session identifier for tracking multiple uploads
+        
+    Returns:
+        UploadResult containing extracted vaccine data
+        
+    Raises:
+        HTTPException: If file type is invalid or file size exceeds limit
     """
     
     # Validate file type
-    allowed_types = ["image/jpeg", "image/png", "image/jpg", "application/pdf"]
-    if file.content_type not in allowed_types:
+    if file.content_type not in config.ALLOWED_FILE_TYPES:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Allowed types: {', '.join(allowed_types)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid file type '{file.content_type}'. Allowed types: {', '.join(config.ALLOWED_FILE_TYPES)}"
         )
     
     # Read file bytes
     file_bytes = await file.read()
     
-    # Validate file size (max 10MB)
-    max_size = 10 * 1024 * 1024  # 10MB
+    # Validate file size
+    max_size = config.MAX_FILE_SIZE_MB * 1024 * 1024
     if len(file_bytes) > max_size:
         raise HTTPException(
-            status_code=400,
-            detail="File size exceeds 10MB limit"
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File size exceeds {config.MAX_FILE_SIZE_MB}MB limit"
         )
     
     try:
@@ -149,7 +171,7 @@ async def upload_vaccine_record(
         record_id = str(uuid.uuid4())
         
         # Process with AI
-        data = await analyze_image_with_ai(file_bytes, OPENAI_API_KEY)
+        data = await analyze_image_with_ai(file_bytes, config.OPENAI_API_KEY)
         
         # Map to our internal schemas using shared helper
         transcription, translation, extracted_vaccines = process_ai_result(data)
@@ -157,15 +179,15 @@ async def upload_vaccine_record(
         # Upload to Supabase Storage
         image_url = None
         try:
-            if SUPABASE_URL and SUPABASE_KEY:
+            if config.SUPABASE_URL and config.SUPABASE_KEY:
                 # Initialize Supabase client
-                supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
                 
                 # Create filename
                 filename = f"{record_id}.jpg"
                 
                 # Upload
-                bucket_name = "vaccine-records"
+                bucket_name = config.STORAGE_BUCKET_NAME
                 supabase.storage.from_(bucket_name).upload(
                     path=filename,
                     file=file_bytes,
@@ -173,13 +195,13 @@ async def upload_vaccine_record(
                 )
                 
                 # Get Public URL
-                image_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}"
+                image_url = f"{config.SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}"
             else:
                 logger.warning("Supabase credentials missing, skipping storage upload.")
                 image_url = f"https://placeholder.com/mock-upload/{record_id}.jpg"
             
         except Exception as e:
-            logger.error(f"Supabase Upload Failed: {e}")
+            logger.error(f"Supabase Upload Failed: {e}", exc_info=True)
             image_url = f"https://placeholder.com/failed-upload/{record_id}.jpg"
 
         # Create result
@@ -228,19 +250,28 @@ async def standardize_record(
 ):
     """
     Standardize an uploaded record against a specific compliance standard.
+    
+    Args:
+        standard: Compliance standard (cornell_tech, us_cdc, uk_nhs, canada_health)
+        request: Standardization request containing record_id
+        
+    Returns:
+        StandardizationResult with compliance status and missing vaccines
+        
+    Raises:
+        HTTPException: If standard is invalid or record not found
     """
     # Validate standard
-    valid_standards = ["cornell_tech", "us_cdc", "uk_nhs", "canada_health"]
-    if standard not in valid_standards:
+    if standard not in config.VALID_STANDARDS:
         raise HTTPException(
-            status_code=400,
-            detail=f"Invalid standard. Supported: {', '.join(valid_standards)}"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid standard '{standard}'. Supported: {', '.join(config.VALID_STANDARDS)}"
         )
     
     # Fetch uploaded record from cache
     if request.record_id not in uploaded_records:
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Record not found. Please upload first."
         )
         
@@ -251,9 +282,9 @@ async def standardize_record(
     
     # Save to Database
     try:
-        if SUPABASE_URL and SUPABASE_KEY:
+        if config.SUPABASE_URL and config.SUPABASE_KEY:
             # Initialize Supabase client
-            supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            supabase: Client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
             
             db_record = {
                 "record_id": request.record_id,
@@ -344,7 +375,7 @@ async def verify_vaccine_record(
             file_bytes = response.content
             
         # Process with AI
-        data = await analyze_image_with_ai(file_bytes, OPENAI_API_KEY)
+        data = await analyze_image_with_ai(file_bytes, config.OPENAI_API_KEY)
         
         # Map to schemas
         transcription, translation, extracted_vaccines = process_ai_result(data)
@@ -391,13 +422,10 @@ if __name__ == "__main__":
     print("🚀 Personal Vault - Medical Compliance Microservice v2.1")
     print("=" * 80)
     
-    # Use environment variable for port, default to 8000
-    port = int(os.getenv("PORT", 8000))
-    
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=port,
+        host=config.HOST,
+        port=config.PORT,
         reload=True,
         log_level="info"
     )
