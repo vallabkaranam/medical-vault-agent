@@ -10,16 +10,14 @@ The design demonstrates "Agentic Architecture" and "Product Engineering" princip
 """
 
 import os
-import base64
+import logging
+import uuid
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
-import uuid
 import httpx
 from supabase import create_client, Client
 
@@ -43,6 +41,10 @@ from schemas import (
 # Import core services
 from services import perform_standardization, analyze_image_with_ai, process_ai_result
 
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Load environment variables
 load_dotenv()
 
@@ -53,10 +55,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Validate required environment variables
 if not all([SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY]):
-    print("WARNING: Missing required environment variables. Please set:")
-    print("  - SUPABASE_URL")
-    print("  - SUPABASE_KEY")
-    print("  - OPENAI_API_KEY")
+    logger.warning("Missing required environment variables. Please set: SUPABASE_URL, SUPABASE_KEY, OPENAI_API_KEY")
 
 # Initialize FastAPI
 app = FastAPI(
@@ -75,13 +74,14 @@ app.add_middleware(
 )
 
 # In-memory cache for uploaded records
-# TODO: Replace with Redis or database in production
-uploaded_records = {}
+# NOTE: In a production environment with multiple workers, this should be 
+# replaced with Redis or a database to ensure state consistency across instances.
+uploaded_records: Dict[str, UploadResult] = {}
 
 # Helper for Analytics
-async def log_analytics_event(session_id: str, event_type: str, data: dict = None):
+async def log_analytics_event(session_id: Optional[str], event_type: str, data: dict = None):
     try:
-        if not SUPABASE_URL or not SUPABASE_KEY:
+        if not SUPABASE_URL or not SUPABASE_KEY or not session_id:
             return
             
         supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -91,7 +91,7 @@ async def log_analytics_event(session_id: str, event_type: str, data: dict = Non
             "event_data": data or {}
         }).execute()
     except Exception as e:
-        print(f"Analytics Error: {e}")
+        logger.error(f"Analytics Error: {e}")
 
 
 
@@ -155,26 +155,31 @@ async def upload_vaccine_record(
         transcription, translation, extracted_vaccines = process_ai_result(data)
         
         # Upload to Supabase Storage
+        image_url = None
         try:
-            # Initialize Supabase client
-            supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-            
-            # Create filename
-            filename = f"{record_id}.jpg"
-            
-            # Upload
-            bucket_name = "vaccine-records"
-            supabase.storage.from_(bucket_name).upload(
-                path=filename,
-                file=file_bytes,
-                file_options={"content-type": "image/jpeg"}
-            )
-            
-            # Get Public URL
-            image_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}"
+            if SUPABASE_URL and SUPABASE_KEY:
+                # Initialize Supabase client
+                supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                
+                # Create filename
+                filename = f"{record_id}.jpg"
+                
+                # Upload
+                bucket_name = "vaccine-records"
+                supabase.storage.from_(bucket_name).upload(
+                    path=filename,
+                    file=file_bytes,
+                    file_options={"content-type": "image/jpeg"}
+                )
+                
+                # Get Public URL
+                image_url = f"{SUPABASE_URL}/storage/v1/object/public/{bucket_name}/{filename}"
+            else:
+                logger.warning("Supabase credentials missing, skipping storage upload.")
+                image_url = f"https://placeholder.com/mock-upload/{record_id}.jpg"
             
         except Exception as e:
-            print(f"Supabase Upload Failed: {e}")
+            logger.error(f"Supabase Upload Failed: {e}")
             image_url = f"https://placeholder.com/failed-upload/{record_id}.jpg"
 
         # Create result
@@ -197,7 +202,7 @@ async def upload_vaccine_record(
         return result
         
     except Exception as e:
-        print(f"Error in upload_vaccine_record: {str(e)}")
+        logger.error(f"Error in upload_vaccine_record: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Upload failed: {str(e)}"
@@ -246,25 +251,26 @@ async def standardize_record(
     
     # Save to Database
     try:
-        # Initialize Supabase client
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
-        db_record = {
-            "record_id": request.record_id,
-            "session_id": uploaded_record.session_id,
-            "standard": standard,
-            "transcription": uploaded_record.transcription.model_dump(mode='json'),
-            "translation": uploaded_record.translation.model_dump(mode='json'),
-            "standardization": result.model_dump(mode='json'),
-            "image_url": uploaded_record.image_url,
-            "processed_at": datetime.utcnow().isoformat()
-        }
-        
-        # Insert into DB
-        supabase.table("compliance_results").insert(db_record).execute()
+        if SUPABASE_URL and SUPABASE_KEY:
+            # Initialize Supabase client
+            supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+            
+            db_record = {
+                "record_id": request.record_id,
+                "session_id": uploaded_record.session_id,
+                "standard": standard,
+                "transcription": uploaded_record.transcription.model_dump(mode='json'),
+                "translation": uploaded_record.translation.model_dump(mode='json'),
+                "standardization": result.model_dump(mode='json'),
+                "image_url": uploaded_record.image_url,
+                "processed_at": datetime.utcnow().isoformat()
+            }
+            
+            # Insert into DB
+            supabase.table("compliance_results").insert(db_record).execute()
         
     except Exception as e:
-        print(f"Warning: Failed to save to database: {e}")
+        logger.warning(f"Failed to save to database: {e}")
     
     # Log Analytics
     await log_analytics_event(uploaded_record.session_id, "STANDARDIZATION_RUN", {
@@ -371,6 +377,7 @@ async def verify_vaccine_record(
         )
         
     except Exception as e:
+        logger.error(f"Vaccine record verification failed: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Vaccine record verification failed: {str(e)}"
@@ -384,10 +391,13 @@ if __name__ == "__main__":
     print("🚀 Personal Vault - Medical Compliance Microservice v2.1")
     print("=" * 80)
     
+    # Use environment variable for port, default to 8000
+    port = int(os.getenv("PORT", 8000))
+    
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info"
     )
